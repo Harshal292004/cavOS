@@ -103,8 +103,11 @@ size_t netSocketUdpBind(OpenFile *fd, sockaddr_linux *addr, size_t len) {
     return ERR(EINVAL);
 
   uint16_t localPort = switch_endian_16(sockaddr->sin_port);
-  if (localPort && !netPortsMarkSafe(&selectedNIC->udp.netPortsUdp, localPort))
+  if (localPort &&
+      !netPortsMarkSafe(&selectedNIC->udp.netPortsUdp, localPort)) {
+    spinlockRelease(&sock->LOCK_SOCKET);
     return ERR(EADDRINUSE);
+  }
 
   netConnectionUdpOpen(sock, localPort, 0, 0);
   spinlockRelease(&sock->LOCK_SOCKET);
