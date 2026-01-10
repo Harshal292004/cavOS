@@ -213,25 +213,10 @@ Task *dummyTask;
 
 bool tasksInitiated;
 
-typedef struct BlockedTask {
-  LLheader _ll;
-
-  Task *task;
-} BlockedTask;
-
-typedef struct Blocking {
-  // also needs a parent lock to be reliable! this is just for the LL
-  Spinlock  LOCK_LL_BLOCKED;
-  LLcontrol dsBlockedTask; // struct BlockedTask
-} Blocking;
-
 // needed for libraries that still depend on some sort of errno
 // should be safe as it's per-thread
 #define errno (currentTask->kernelErrno)
 
-void taskBlock(Blocking *blocking, Task *task, Spinlock *releaseAfter,
-               bool apply);
-void taskUnblock(Blocking *blocking);
 void taskSpinlockExit(Task *task, Spinlock *lock);
 
 void initiateTasks();

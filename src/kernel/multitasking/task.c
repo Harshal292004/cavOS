@@ -227,7 +227,7 @@ void taskKill(uint32_t id, uint16_t ret) {
   }
 
   // vfork() children need to notify parents no matter what
-  if (task->parent->state == TASK_STATE_WAITING_VFORK)
+  if (task->parent && task->parent->state == TASK_STATE_WAITING_VFORK)
     task->parent->state = TASK_STATE_READY;
 
   if (task->tidptr) {
@@ -474,51 +474,6 @@ Task *taskFork(AsmPassedInterrupt *cpu, uint64_t rsp, int cloneFlags,
     taskCreateFinish(target);
 
   return target;
-}
-
-// todo! WONKY DS & RETHINK THIS SYSTEM!!
-void taskBlock(Blocking *blocking, Task *task, Spinlock *releaseAfter,
-               bool apply) {
-  assert(task == currentTask); // otherwise, it exits with ptr dangling
-  if (!apply)
-    assert(!releaseAfter);
-  spinlockAcquire(&blocking->LOCK_LL_BLOCKED);
-
-  // it's rare enough more than one task is blocked together, go through it
-  BlockedTask *browse = (BlockedTask *)blocking->dsBlockedTask.firstObject;
-  while (browse) {
-    if (browse->task == task)
-      debugf("[task::blocking] WARNING! Duplicate task!\n");
-    browse = (BlockedTask *)browse->_ll.next;
-  }
-
-  BlockedTask *blockedTask =
-      LinkedListAllocate(&blocking->dsBlockedTask, sizeof(BlockedTask));
-  blockedTask->task = task;
-  spinlockRelease(&blocking->LOCK_LL_BLOCKED);
-
-  // finally block
-  if (apply) {
-    if (releaseAfter)
-      taskSpinlockExit(task, releaseAfter);
-    task->state = TASK_STATE_BLOCKED;
-  }
-}
-
-void taskUnblock(Blocking *blocking) {
-  spinlockAcquire(&blocking->LOCK_LL_BLOCKED);
-  BlockedTask *browse = (BlockedTask *)blocking->dsBlockedTask.firstObject;
-  while (browse) {
-    BlockedTask *next = (BlockedTask *)browse->_ll.next;
-    if (browse->task) {
-      Task *task = browse->task;
-      if (task->state != TASK_STATE_DEAD)
-        task->state = TASK_STATE_READY;
-    }
-    LinkedListRemove(&blocking->dsBlockedTask, sizeof(BlockedTask), browse);
-    browse = next;
-  }
-  spinlockRelease(&blocking->LOCK_LL_BLOCKED);
 }
 
 // Will release lock when task isn't running via the kernel helper
