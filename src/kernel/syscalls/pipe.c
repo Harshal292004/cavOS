@@ -19,8 +19,6 @@ typedef struct PipeInfo {
   int readFds;
 
   Spinlock LOCK;
-  Blocking blockingRead;
-  Blocking blockingWrite;
 } PipeInfo;
 
 typedef struct PipeSpecific PipeSpecific;
@@ -49,9 +47,6 @@ size_t pipeOpen(int *fds) {
   memset(info, 0, sizeof(PipeInfo));
   info->readFds = 1;
   info->writeFds = 1;
-
-  LinkedListInit(&info->blockingRead.dsBlockedTask, sizeof(BlockedTask));
-  LinkedListInit(&info->blockingWrite.dsBlockedTask, sizeof(BlockedTask));
 
   PipeSpecific *readSpec = (PipeSpecific *)malloc(sizeof(PipeSpecific));
   readSpec->write = false;
@@ -108,8 +103,8 @@ size_t pipeRead(OpenFile *fd, uint8_t *out, size_t limit) {
       spinlockRelease(&pipe->LOCK);
       return ERR(EWOULDBLOCK);
     }
-    taskBlock(&pipe->blockingRead, currentTask, &pipe->LOCK, true);
-    handControl();
+    spinlockRelease(&pipe->LOCK);
+    pollIndependentAwait(fd, EPOLLIN);
   }
 
   if (!pipe->assigned) {
@@ -125,7 +120,6 @@ size_t pipeRead(OpenFile *fd, uint8_t *out, size_t limit) {
   memcpy(out, pipe->buf, toCopy);
   pipe->assigned -= toCopy;
   memmove(pipe->buf, &pipe->buf[toCopy], PIPE_BUFF - toCopy);
-  taskUnblock(&pipe->blockingWrite);
   spinlockRelease(&pipe->LOCK);
   pollInstanceRing((size_t)pipe, EPOLLOUT);
 
@@ -148,14 +142,13 @@ size_t pipeWriteInner(OpenFile *fd, uint8_t *in, size_t limit) {
       spinlockRelease(&pipe->LOCK);
       return ERR(EWOULDBLOCK);
     }
-    taskBlock(&pipe->blockingWrite, currentTask, &pipe->LOCK, true);
-    handControl();
+    spinlockRelease(&pipe->LOCK);
+    pollIndependentAwait(fd, EPOLLOUT);
   }
 
   // we already have a spinlock!
   memcpy(&pipe->buf[pipe->assigned], in, limit);
   pipe->assigned += limit;
-  taskUnblock(&pipe->blockingRead);
   spinlockRelease(&pipe->LOCK);
   pollInstanceRing((size_t)pipe, EPOLLIN);
 
@@ -204,7 +197,7 @@ int pipeInternalPoll(OpenFile *fd, int events) {
   if (events & EPOLLIN) {
     if (!pipe->writeFds)
       out |= EPOLLHUP;
-    else if (pipe->assigned > 0)
+    if (pipe->assigned > 0)
       out |= EPOLLIN;
   }
 
@@ -235,14 +228,10 @@ bool pipeCloseEnd(OpenFile *readFd) {
     pipe->readFds--;
 
   int pollWith = 0;
-  if (!pipe->writeFds) { // edge case
-    taskUnblock(&pipe->blockingRead);
+  if (!pipe->writeFds) // edge case
     pollWith |= EPOLLHUP;
-  }
-  if (!pipe->readFds) { // edge case (more aggressive)
-    taskUnblock(&pipe->blockingWrite);
+  if (!pipe->readFds) // edge case (more aggressive)
     pollWith |= EPOLLERR;
-  }
 
   if (!pipe->readFds && !pipe->writeFds)
     free(pipe);

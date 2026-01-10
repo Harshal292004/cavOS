@@ -425,11 +425,20 @@ static size_t syscallFutex(uint32_t *addr, int op, uint32_t value,
 
 #define SYSCALL_EXIT_GROUP 231
 static void syscallExitGroup(int return_code) {
+  // todo: "leader" needs to properly return whoever's return code!
+  assert(currentTask->tgid == currentTask->id);
+
   spinlockCntReadAcquire(&TASK_LL_MODIFY);
   Task *browse = firstTask;
   while (browse) {
     if (browse->tgid == currentTask->tgid && browse->id != currentTask->id) {
       // found one of ours!
+      if (browse->tgid != browse->id) {
+        // not the main one
+        browse->noInformParent = true;
+        browse->parent = 0;
+        // browse->tidptr = 0;
+      }
       atomicBitmapSet(&browse->sigPendingList, SIGKILL);
     }
     browse = browse->next;
@@ -457,4 +466,7 @@ void syscallsRegProc() {
   registerSyscall(SYSCALL_REBOOT, syscallReboot);
   registerSyscall(SYSCALL_EVENTFD2, syscallEventfd2);
   registerSyscall(SYSCALL_FUTEX, syscallFutex);
+  // registerSyscall(SYSCALL_INOTIFY_INIT, syscallInotifyInit);
+  // registerSyscall(SYSCALL_INOTIFY_ADD_WATCH, syscallInotifyAddWatch);
+  // registerSyscall(SYSCALL_INOTIFY_RM_WATCH, syscallInotifyRmWatch);
 }
