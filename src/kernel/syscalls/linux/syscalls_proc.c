@@ -170,6 +170,9 @@ void freeArgvIfNeeded(char **argv) {
 
 #define SYSCALL_EXECVE 59
 static size_t syscallExecve(char *filename, char **argv, char **envp) {
+  // todo: also check for leader & kill the whole thread group for this
+  assert(currentTask->id == currentTask->tgid);
+
   assert(argv[0]); // shebang support depends on it atm. check (dep)
   dbgSysExtraf("filename{%s}", filename);
   spinlockAcquire(&currentTask->infoFs->LOCK_FS);

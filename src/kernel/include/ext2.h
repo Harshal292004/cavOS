@@ -164,6 +164,9 @@ typedef struct Ext2FoundObject {
   // cache lock
   SpinlockCnt WLOCK_CACHE;
 
+  // deletion
+  char *filenameToBeDeleted;
+
   // caching
   Ext2CacheObject *firstCacheObj;
 } Ext2FoundObject;

@@ -734,7 +734,13 @@ bool ext2Close(OpenFile *fd) {
 
   spinlockAcquire(&dir->globalObject->LOCK_PROP);
   dir->globalObject->openFds--;
+  char *filenameToBeDeleted = 0;
+  if (!dir->globalObject->openFds && dir->globalObject->filenameToBeDeleted)
+    filenameToBeDeleted = dir->globalObject->filenameToBeDeleted;
   spinlockRelease(&dir->globalObject->LOCK_PROP);
+
+  if (filenameToBeDeleted)
+    ext2Delete(fd->mountPoint, filenameToBeDeleted, false, 0);
 
   free(fd->dir);
   return true;
@@ -859,7 +865,17 @@ size_t ext2Delete(MountPoint *mnt, char *filename, bool directory,
 
   // todo: bool deleted, remove direntry, wipe on last close
   Ext2FoundObject *global = ext2GlobalFetch(ext2, inodeNum);
-  assert(!global || !global->openFds);
+  // todo: better implementation removing direntry, depending on inode
+  // we also need to redo the ext2 locks & remove directory assert()
+  if (global && global->openFds) {
+    assert(!directory);
+    int len = strlength(filename) + 1;
+    global->filenameToBeDeleted = malloc(len);
+    memcpy(global->filenameToBeDeleted, filename, len);
+    ret = 0;
+    goto cleanup;
+  }
+  // assert(!global || !global->openFds);
 
   inode = ext2InodeFetch(ext2, inodeNum);
   if (!inode) {
